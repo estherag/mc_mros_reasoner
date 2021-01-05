@@ -1,93 +1,82 @@
-# mros_reasoner
+# Reasoner
 
-A meta-controller implementation for ROS1
-
+A meta-controller implementation for ROS1 applicated to UX-1 robot from UNEXMIN, based on meta-controller from [TUD](https://github.com/tud-cor/mc_mros_reasoner.git)
+tested on ROS Kinetic and Ubuntu 16.04.
 ## Installation
 
-### Previous steps
 
 #### Install java jre
 
-The `mros_reasoner` uses  [Owlready2](https://owlready2.readthedocs.io/en/latest/index.html) to handle the ontologies and perform reasoning.
-
-Owlready2 by default uses the [HermiT reasoner](http://www.hermit-reasoner.com/) which is written in Java, and thus you need a Java Vitual Machine to perform reasoning in Owlready2.
-
-You can use this command **To install the Java Vitual Machine**
+The `reasoner` uses  [Owlready2](https://owlready2.readthedocs.io/en/latest/index.html) to handle the ontologies and perform reasoning. To do so, Owlready and java should be installed.
 
 ```console
-sudo apt-get install openjdk-11-jre
-```
+sudo add-apt-repository ppa:openjdk-r/ppa
+sudo apt-get update
+sudo apt install openjdk-11-jdk
 
+pip3 install owlready2
+```
 Under Linux, Owlready should automatically find Java.
 
-### Create reasoner_ws
-
-- We recommend you to create a workspace only for `mros1_reasoner`, for example:
+### Create reasoner_ws and install dependencies
 
 ```console
-  mkdir -p ~/mros1_reasoner_ws/src
-  cd mros1_reasoner_ws
+  mkdir -p ~/reasoner_ws/src
+  cd reasoner_ws/src
+  git clone https://github.com/estherag/reasoner.git
+  cd ..
 ```
-
-### Get mros1_reasoner and dependencies using wstool
-
-- You need to copy the `mros1_reasoner` and its dependencies into the reasoner workspace (ie: `mros1_reasoner_ws`).
-
-```console
-  cd ~/mros1_reasoner_ws
-  wstool init ~/mros1_reasoner_ws/src https://raw.githubusercontent.com/tud-cor/mc_mros_reasoner/master/mros1_reasoner/mros1_reasoner.rosinstall
-  rosdep install --from-paths ~/mros1_reasoner_ws/src -y -i -r
-```
-
-**Note** The above `rosdep install` uses the `-r` argument in order to ignore possible errors. Please check the console output to make sure all dependencies are installed correctly.
 
 ### Build the code
 
 - Once you have the workspace setup, you can build the workspace
-- Do not forget to source ROS Melodic workspace before building your `mros1_reasoner_ws`
+- Do not forget to source ROS Kinetic workspace before building your `reasoner_ws`
+- Specify we are using Python 3 in the building instructions as ROS Kinetic uses Python 2 by default
 
 ```console
-source /opt/ros/melodic/setup.bash
-catkin build
+source /opt/ros/kinetic/setup.bash
+catkin build -DCATKIN_ENABLE_TESTING=0 -DCMAKE_BUILD_TYPE=Release -DPYTHON_VERSION=3.5
 ```
 
-## User instructions
-
-The mros1_reasoner node needs the following elements:
-
-- an OWL model of the system to be metacontrolled. This can be manually created directly in OWL, e.g. using Protege, or it can be generated automatically from other models of the system ([rosin-experiments](https://github.com/rosin-project/rosin-experiments) provides a way to develop the model according to RosModel, and the script [`rosmodel2owl.py`](https://github.com/tud-cor/mc_mros_reasoner/blob/master/mros1_reasoner/scripts/rosmodel2owl.py) provides a way to transform it to OWL)
-- monitoring and reconfiguration infrastructure for the given platform, e.g. for ROS1 reconfiguration capabilities are provided by [`ros_manipulator.py`](https://github.com/rosin-project/metacontrol_sim/blob/master/scripts/rosgraph_manipulator.py) and by the launchfiles in [metacontrol_move_base_configurations](https://github.com/rosin-project/metacontrol_move_base_configurations)
-
-### Execution
+## Execution
 
 Source your ws and launch the reasoner:
 
 ```console
-source mros1_reasoner_ws/devel/setup.bash
+source reasoner_ws/devel/setup.bash
 roslaunch mros1_reasoner run.launch
 ```
+To read diagnostic messages we use the `observer_node`. This node informs the reasoner for possible contingencies in the robot.
+```console
+rosrun reasoner observer_node.py
+```
+Two types of contingencies are managed:
+- Broken thruster.
 
-### Testing
+When a thruster is offline, a `/broken_thruster` topic is used to inform the observer. Just a string message with the name of the broken thruster (t0 to t7) is needed, e.g.:
+```console
+rostopic pub /broken_thruster std_msgs/String "data: 't0'"
+```
+- Change in movement direction. 
 
-Two [rostest](http://wiki.ros.org/rostest) have been created for this package:
+When a the movement direction chages, a `/movement` topic is used. In this experiment just 2 directions are managed: X (surge) and Z (heave). By default, the system starts with a heave movement, each time the robot changes its direction, the reasoner should be informed, e.g.:
+```console
+rostopic pub /movement std_msgs/String "data: 'surge'"
+```
+This changes in movement are implemented because for instance, when t0 thruster is broken the heave movement can be done without interfereance, as this thruster isn't implicated on this movement.
 
-1. The **1-level functional architecture** test, which checks that the reasoner is capable of loading an `owl` file compliant with TOMAsys including:
+### Reconfiguration
+When the reasoner detects a new configuration is required (each time a function design is grounded), a matrixAllocation msg will be published on a `/reconfiguration` topic.
+This matrixAllocation msg sends one array of type float64[8] for each movement direction X, Y, Z, K, M, N.  For instance, the message sent when grounding the FD `fd_surge_all` is:
 
-    1. a Function and multiple FDs that solves it.
-    1. QA performance values for the FDs.
+```console
+X: [0.5, 0.0, -0.5, 0.0, 0.5, 0.0, -0.5, 0.0]
+Y: [-0.25, -0.25, -0.25, 0.25, 0.25, -0.25, 0.25, -0.25]
+Z: [0.0, -0.5, 0.0, -0.5, 0.0, 0.5, 0.0, -0.5]
+K: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+M: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+N: [-0.25, 0.0, 0.25, 0.0, 0.25, 0.0, -0.25, 0.0]
+``` 
 
-    To run this first test use:
+This reconfiguration matrix is adapted to allocate correctly the forces according to the direction and broken thrusters, which are implemented in the ontology as function designs. This matrix values for each FD can be changed in the .csv allocated in the reconfiguration folder on the repository.
 
-    ```console
-    source mros1_reasoner_ws/devel/setup.bash
-    rostest mros1_reasoner test_level_1_functional_arch.test
-    ```
-
-1. The **QA reception** test, checks wheter or not the reasoner can correctly receive a QA value and update it on its knowledge base.
-
-    To run this second test use:
-
-    ```console
-    source mros1_reasoner_ws/devel/setup.bash
-    rostest mros1_reasoner test_qa_reception.test
-    ```  

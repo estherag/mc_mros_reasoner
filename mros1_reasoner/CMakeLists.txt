@@ -1,10 +1,11 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(mros1_reasoner)
+project(reasoner)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)
 
-find_package(catkin REQUIRED COMPONENTS catkin_virtualenv)
+find_package(catkin REQUIRED COMPONENTS catkin_virtualenv   std_msgs 
+  message_generation)
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
@@ -41,6 +42,10 @@ catkin_python_setup()
 #   Message1.msg
 #   Message2.msg
 # )
+add_message_files(
+  FILES
+  matrixAllocation.msg
+)
 
 ## Generate services in the 'srv' folder
 # add_service_files(
@@ -61,6 +66,11 @@ catkin_python_setup()
 #   DEPENDENCIES
 #   std_msgs  # Or other packages containing msgs
 # )
+
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+)
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -93,8 +103,8 @@ catkin_python_setup()
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
 #  INCLUDE_DIRS include
-#  LIBRARIES mros1_reasoner
-#  CATKIN_DEPENDS other_catkin_pkg
+#  LIBRARIES beginner_tutorials
+  CATKIN_DEPENDS message_runtime
 #  DEPENDS system_lib
 )
 
@@ -183,11 +193,7 @@ install(FILES requirements.txt
 
 
 set(python_scripts
-  scripts/mros1_reasoner_node.py
-  scripts/rosmodel2owl.py
-  test/test_models_paper.py
-  test/test_qa_reception.py
-  test/test_level_1_functional_arch.py
+  scripts/reasoner_node.py
 )
 
 
@@ -210,13 +216,4 @@ catkin_install_python(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-if(CATKIN_ENABLE_TESTING)
-  find_package(rostest)
-  foreach(T
-      test/test_models_paper.test
-      test/test_qa_reception.test
-      test/test_level_1_functional_arch.test
-      )
-     add_rostest(${T})
-  endforeach()
-endif()
+
