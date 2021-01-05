@@ -3,17 +3,19 @@
 # 
 # authors:    M.A.GarzonOviedo@tudelft.nl
 #             c.h.corbato@tudelft.nl
+#             e.aguado@upm.es
 ##########################################
 
 from collections import defaultdict
-
+import rospy
 import argparse
 from decimal import Decimal
 
 import signal, sys
 from threading import Lock
 
-from mros1_reasoner.tomasys import *
+from reasoner.tomasys import *
+from owlready2 import sync_reasoner_pellet, destroy_entity
 
 class Reasoner(object):
     """docstring for Reasoner."""
@@ -54,19 +56,13 @@ class Reasoner(object):
         typeF=self.onto.search_one(iri=str(iri_seed)))
         return objective
 
-    def get_new_tomasys_nrf(self, qa_value_name, iri_seed, nfr_value):
-        """Creates QAvalue individual in the KB given a desired name and a string seed for the QAtype name and the value
-        """
-        new_nfr = self.tomasys.QAvalue(str(qa_value_name), namespace=self.onto, isQAtype=self.onto.search_one(
-            iri=str(iri_seed)), hasValue=nfr_value)
-        return new_nfr
-
     def set_new_grounding(self, fd_name, objective):
         """Given a string fd_name with the name of a FunctionDesign and an objective, removes the previous fg for the objective and ground a new fg of typeF fd
         """
         remove_objective_grounding(objective, self.tomasys, self.onto)
         fd = self.onto.search_one(iri="*{}".format(fd_name), is_a = self.tomasys.FunctionDesign)       
         ground_fd(fd, objective, self.tomasys, self.onto)
+        resetObjStatus(objective)
         return str(fd.name)
 
     # the DiagnosticStatus message process contains, per field
@@ -83,23 +79,35 @@ class Reasoner(object):
         else:
             return 0
 
-    # update QA value based on incoming diagnostic
-    def updateQA(self, diagnostic_status):
-        # Find the FG with the same name that the one in the QA message (in diagnostic_status.name)
-        fg = next((fg for fg in self.tomasys.FunctionGrounding.instances() if fg.name == diagnostic_status.name), None)
-        if fg == None:
-            fg = self.tomasys.FunctionGrounding.instances()[0]
-            return_value = -1
-        qa_type = self.onto.search_one(iri="*{}".format(diagnostic_status.values[0].key))
-        if qa_type != None:
-            value = float(diagnostic_status.values[0].value)
+    def updateComponentStatus(self, diagnostic_status):
+        # Find the Component with the same name that the one in the Component Status message (in diagnostic_status.key)
+        component_type = self.onto.search_one(iri="*{}".format(diagnostic_status.name), type=self.tomasys.Component)
+        return_value = "NONE"
+        if component_type != None:
+            value = False
             with self.lock:
-                updateQAvalue(fg, qa_type, value, self.tomasys, self.onto)
-            return_value = 1
-        else:
-            return_value = 0
+                #resetFDRealisability(self.tomasys, self.onto, diagnostic_status.name)
+                component_type.c_status = value
         return return_value
 
+    def updateObjectiveStatus(self, diagnostic_status):
+        function_type = self.onto.search_one(iri="*{}".format(diagnostic_status.name))
+        return_value = "NONE"
+        if function_type != None:
+            objectives = self.search_objectives()
+            old_fg = self.onto.search_one(solvesO=objectives[0])
+            o = objectives[0]
+            if not (o.typeF == function_type):
+            # if movement direction diferent from current direction, change objective
+                destroy_entity(o)
+                destroy_entity(old_fg)
+                # create new objective
+                obj_navigate = self.get_new_tomasys_objective("o_"+function_type.name.replace('f_', ''), "*"+function_type.name)
+                fd = obtainBestFunctionDesign(obj_navigate,self.tomasys)
+                self.grounded_configuration = self.set_new_grounding(fd, obj_navigate)
+                rospy.loginfo("\n\nNew objective created to solve function: {0}, FG:{1}".format(function_type.name, self.onto.search(type=self.tomasys.FunctionGrounding)))
+                return_value = fd #need reconfig        
+        return return_value
 
     # EXEC REASONING to update ontology with inferences
     # TODO CHECK: update reasoner facts, evaluate, retrieve action, publish
